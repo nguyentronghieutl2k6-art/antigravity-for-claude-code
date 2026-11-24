@@ -3,6 +3,10 @@
 All notable changes to **Antigravity for Claude Code**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## Unreleased
+
+- **`agy-handoff --grant <yolo|auto>`.** The executor grant was hard-coded to `--yolo` (`--dangerously-skip-permissions`, every tool on the whole machine). `--grant auto` passes `--mode auto` instead (agy 1.5.7+ with the OS terminal sandbox active: workspace edits plus vetted/sandboxed commands). Default stays `yolo`, overridable with `AGY_HANDOFF_GRANT`; an exit-15 denial under `auto` now says so instead of reporting `policy_blocked despite --yolo`. Stub-tested; not yet measured live on Linux.
+
 ## 0.31.3
 
 - **`agy 1.5.16` `-r` / `--resume <id>` support across `agy-delegate`, `agy-job start`, and `validate-delegate-bash.sh`.** Adds `-r <id>`, `--resume <id>`, `--resume=<id>`, and `--conversation=<id>` alongside `--conversation <id>` in `scripts/agy-delegate.sh` and `hooks/validate-delegate-bash.sh` (`DELEGATE_VAL_OPTS`, leaving `agy-handoff` unchanged), normalizing all forms to `--conversation "$CONV_ID"` so `-r`/`--resume` works across `agy 1.0.x`–`1.5.16+` without probing `agy --help` (measured manually on Linux with `agy 1.5.16` under `AGY_ADC_AUTH=true` across multi-turn `Gemini 4 Neon (High)` and `Gemini 4 Hydrogen (High)` resume runs, and stub-tested in CI). Rejects empty, whitespace-containing, or flag-shaped (`-*`) conversation IDs, conflicting `--conversation` vs `-r`/`--resume` IDs, and `-c`/`--continue` combined with a conversation ID (`exit 1`).

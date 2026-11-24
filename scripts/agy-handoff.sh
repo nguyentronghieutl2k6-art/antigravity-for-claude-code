@@ -28,6 +28,10 @@
 #                               go.mod / package.json / pyproject.toml / Cargo.toml / Makefile)
 #       --verify-timeout <sec>  cap on one verification run (default: 1800)
 #       --fixups <n>            fix-up delegations allowed when verification fails (default: 1)
+#       --grant <yolo|auto>     executor permission grant (default: yolo, or $AGY_HANDOFF_GRANT).
+#                               yolo = --dangerously-skip-permissions (ALL tools, whole machine);
+#                               auto = agy --mode auto (agy 1.5.7+ with the OS sandbox active:
+#                               workspace edits + vetted/sandboxed commands only)
 #       --tests <paths>         comma-separated test files that already exist and must pass
 #                               UNMODIFIED; a change to any of them fails the hand-off (exit 6)
 #       --no-verify             skip verification (report only; not the measured protocol)
@@ -58,9 +62,16 @@ REG="${ANTIGRAVITY_JOBS:-$HOME/.antigravity-jobs}"
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' | sed '$d'; }
 die() { echo "agy-handoff: $*" >&2; exit 1; }
+grant_denied_hint() {
+  if [ "$GRANT" = "auto" ]; then
+    echo "agy-handoff:   --grant auto denied a tool (unvetted command or write outside the workspace); add a permissions.allow rule, or re-run with --grant yolo on a throwaway branch/worktree" >&2
+  else
+    echo "agy-handoff:   policy_blocked despite --yolo (enterprise admin policy or permissions.deny)" >&2
+  fi
+}
 
 DIR="."; TIER="flash"; EFFORT=""; MODEL=""; TIMEOUT="120m"; FIX_TIMEOUT="60m"; VERIFY=""; VERIFY_TIMEOUT=1800
-FIXUPS=1; TESTS=""; NO_VERIFY=0; ALLOW_DIRTY=0; NEW_PROJECT="auto"; BACKGROUND=0; JSON=0; PRINT=0; REQ=""
+FIXUPS=1; GRANT="${AGY_HANDOFF_GRANT:-yolo}"; TESTS=""; NO_VERIFY=0; ALLOW_DIRTY=0; NEW_PROJECT="auto"; BACKGROUND=0; JSON=0; PRINT=0; REQ=""
 ORIG_ARGS=("$@")
 need() {
   [ $# -ge 2 ] || die "option $1 needs a value"
@@ -100,6 +111,7 @@ while [ $# -gt 0 ]; do
     --verify) need "$@"; VERIFY="$2"; shift 2 ;;
     --verify-timeout) need "$@"; VERIFY_TIMEOUT="$2"; shift 2 ;;
     --fixups) need "$@"; FIXUPS="$2"; shift 2 ;;
+    --grant) need "$@"; GRANT="$2"; shift 2 ;;
     --tests) need "$@"; TESTS="$2"; shift 2 ;;
     --no-verify) NO_VERIFY=1; shift ;;
     --allow-dirty) ALLOW_DIRTY=1; shift ;;
@@ -116,6 +128,7 @@ while [ $# -gt 0 ]; do
 done
 printf '%s' "$REQ" | grep -q '[^[:space:]]' || { usage >&2; exit 1; }
 case "$FIXUPS" in ''|*[!0-9]*) die "--fixups must be a number" ;; esac
+case "$GRANT" in yolo|auto) ;; *) die "--grant must be yolo or auto, got '$GRANT'" ;; esac
 case "$VERIFY_TIMEOUT" in ''|*[!0-9]*) die "--verify-timeout must be seconds" ;; esac
 reject_unc_or_device_path "--dir" "$DIR"
 [ -d "$DIR" ] || die "no such directory: $DIR"
@@ -166,7 +179,8 @@ PROMPT1="$REQ
 
 $CONTRACT"
 
-DELEGATE_OPTS=(--tier "$TIER" --yolo --dir "$DIR")
+if [ "$GRANT" = "auto" ]; then GRANT_OPTS=(--mode auto); else GRANT_OPTS=(--yolo); fi
+DELEGATE_OPTS=(--tier "$TIER" "${GRANT_OPTS[@]}" --dir "$DIR")
 [ -n "$EFFORT" ] && DELEGATE_OPTS+=(--effort "$EFFORT")
 [ -n "$MODEL" ] && DELEGATE_OPTS+=(--model "$MODEL")
 
@@ -175,6 +189,7 @@ if [ "$PRINT" = "1" ]; then
   echo "  dir:      $DIR"
   echo "  tier:     $TIER${MODEL:+ (model: $MODEL)}"
   echo "  timeout:  $TIMEOUT (fix-up: $FIX_TIMEOUT), fix-ups: $FIXUPS"
+  echo "  grant:    $GRANT"
   if [ "$NO_VERIFY" = "1" ]; then echo "  verify:   (skipped: --no-verify)"; else echo "  verify:   $VERIFY  (timeout ${VERIFY_TIMEOUT}s)"; fi
   [ -n "$TESTS" ] && echo "  tests:    $TESTS (must pass unmodified)"
   echo "  register: agy --new-project (${NEW_PROJECT})"
@@ -256,7 +271,7 @@ DELEGATIONS=$((DELEGATIONS+1))
 case "$RC1" in
   1|10|11|13|14|15|16)
     echo "agy-handoff: executor unavailable (agy-delegate exit $RC1); nothing verified" >&2
-    [ "$RC1" -eq 15 ] && echo "agy-handoff:   policy_blocked despite --yolo (enterprise admin policy or permissions.deny)" >&2
+    [ "$RC1" -eq 15 ] && grant_denied_hint
     exit "$RC1" ;;
 esac
 [ "$RC1" -eq 0 ] || echo "agy-handoff: note: the executor returned exit $RC1; verifying whatever landed" >&2
@@ -285,7 +300,7 @@ $CONTRACT"
     case "$RCF" in
       1|10|11|13|14|15|16)
         echo "agy-handoff: executor unavailable during fix-up (exit $RCF)" >&2
-        [ "$RCF" -eq 15 ] && echo "agy-handoff:   policy_blocked despite --yolo (enterprise admin policy or permissions.deny)" >&2
+        [ "$RCF" -eq 15 ] && grant_denied_hint
         exit "$RCF" ;;
     esac
     verify "$VOUT"; VRC=$?

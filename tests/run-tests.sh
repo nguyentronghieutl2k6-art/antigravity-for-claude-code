@@ -2830,6 +2830,16 @@ check "print-command shows the requirement" 0 "$rc" "REQ-MARK" "$out"
 check "print-command shows the contract" 0 "$rc" "Hand-off contract" "$out"
 check "print-command names the protected tests" 0 "$rc" "a_test.go already exist" "$out"
 check "print-command runs nothing (no verify count)" 0 "$rc" "" ""
+# --grant: yolo stays the default; auto swaps --yolo for --mode auto; junk is refused
+out=$("$HANDOFF" --dir "$HREPO" --print-command "do x" 2>&1); rc=$?
+check "grant defaults to yolo" 0 "$rc" "--yolo --dir" "$out"
+out=$("$HANDOFF" --dir "$HREPO" --grant auto --print-command "do x" 2>&1); rc=$?
+check "--grant auto passes --mode auto" 0 "$rc" "--mode auto --dir" "$out"
+printf '%s' "$out" | grep -q -- 'agy-delegate .*--yolo'; check "--grant auto drops --yolo" 1 "$?"
+out=$(AGY_HANDOFF_GRANT=auto "$HANDOFF" --dir "$HREPO" --print-command "do x" 2>&1); rc=$?
+check "AGY_HANDOFF_GRANT=auto sets the default" 0 "$rc" "grant:    auto" "$out"
+out=$("$HANDOFF" --dir "$HREPO" --grant sudo --print-command "do x" 2>&1); rc=$?
+check "--grant rejects unknown values" 1 "$rc" "--grant must be yolo or auto" "$out"
 [ ! -e "$TMP/vcount" ] || { echo "FAIL: print-command ran the verify command"; FAIL=$((FAIL+1)); }
 out=$(printf 'STDIN-REQ-MARK' | "$HANDOFF" --dir "$HREPO" --print-command - 2>&1); rc=$?
 check "requirement from stdin (-)" 0 "$rc" "STDIN-REQ-MARK" "$out"
